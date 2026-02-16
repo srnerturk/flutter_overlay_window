@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Color;
@@ -112,6 +113,30 @@ public class OverlayService extends Service implements View.OnTouchListener {
         }
     }
 
+    /**
+     * Overlay'in son konumunu SharedPreferences'a kaydeder
+     * @param x Overlay'in x pozisyonu
+     * @param y Overlay'in y pozisyonu
+     */
+    private void saveLastPosition(int x, int y) {
+        SharedPreferences sharedPref = getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = sharedPref.edit();
+        editor.putInt("last_x", x);
+        editor.putInt("last_y", y);
+        editor.apply();
+    }
+
+    /**
+     * SharedPreferences'tan overlay'in son konumunu yükler
+     * @return Son kaydedilmiş pozisyon (Point)
+     */
+    private Point getLastPosition() {
+        SharedPreferences sharedPref = getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
+        int x = sharedPref.getInt("last_x", 0); // Varsayılan 0
+        int y = sharedPref.getInt("last_y", 100); // Varsayılan 100
+        return new Point(x, y);
+    }
+
     @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR1)
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -170,8 +195,18 @@ public class OverlayService extends Service implements View.OnTouchListener {
 
         // Ekran boyutlarını güncelle
         updateScreenDimensions();
-        int dx = startX == OverlayConstants.DEFAULT_XY ? 0 : startX;
-        int dy = startY == OverlayConstants.DEFAULT_XY ? -statusBarHeightPx() : startY;
+        
+        // Başlangıç değerlerini kontrol et
+        int dx, dy;
+        if (startX == OverlayConstants.DEFAULT_XY && startY == OverlayConstants.DEFAULT_XY) {
+            // Varsayılan değerler ise son konumu yükle
+            Point lastPos = getLastPosition();
+            dx = lastPos.x;
+            dy = lastPos.y;
+        } else {
+            dx = startX == OverlayConstants.DEFAULT_XY ? 0 : startX;
+            dy = startY == OverlayConstants.DEFAULT_XY ? -statusBarHeightPx() : startY;
+        }
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowSetup.width == -1999 ? -1 : WindowSetup.width,
                 WindowSetup.height != -1999 ? WindowSetup.height : screenHeight(),
@@ -484,6 +519,8 @@ public class OverlayService extends Service implements View.OnTouchListener {
                     break;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
+                    // Konumu kaydet
+                    saveLastPosition(params.x, params.y);
                     lastYPosition = params.y;
                     if (!WindowSetup.positionGravity.equals("none")) {
                         if (windowManager == null) return false;
