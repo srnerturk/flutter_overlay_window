@@ -94,6 +94,24 @@ public class OverlayService extends Service implements View.OnTouchListener {
         instance = null;
     }
 
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        updateScreenDimensions();
+    }
+
+    private void updateScreenDimensions() {
+        if (windowManager != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR2) {
+                windowManager.getDefaultDisplay().getSize(szWindow);
+            } else {
+                DisplayMetrics displaymetrics = new DisplayMetrics();
+                windowManager.getDefaultDisplay().getMetrics(displaymetrics);
+                szWindow.set(displaymetrics.widthPixels, displaymetrics.heightPixels);
+            }
+        }
+    }
+
     @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR1)
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -150,15 +168,8 @@ public class OverlayService extends Service implements View.OnTouchListener {
         });
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
-            windowManager.getDefaultDisplay().getSize(szWindow);
-        } else {
-            DisplayMetrics displaymetrics = new DisplayMetrics();
-            windowManager.getDefaultDisplay().getMetrics(displaymetrics);
-            int w = displaymetrics.widthPixels;
-            int h = displaymetrics.heightPixels;
-            szWindow.set(w, h);
-        }
+        // Ekran boyutlarını güncelle
+        updateScreenDimensions();
         int dx = startX == OverlayConstants.DEFAULT_XY ? 0 : startX;
         int dy = startY == OverlayConstants.DEFAULT_XY ? -statusBarHeightPx() : startY;
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
@@ -400,58 +411,37 @@ public class OverlayService extends Service implements View.OnTouchListener {
     }
 
     /**
-     * Overlay pozisyonunu ekran sınırları içinde tutar ve kenarlardan belirli bir mesafe uzakta tutar
+     * Overlay pozisyonunu ekran sınırları içinde tutar
      * @param x Overlay'in x pozisyonu
      * @param y Overlay'in y pozisyonu
      * @param params WindowManager.LayoutParams
      * @return Sınırlandırılmış pozisyon array'i [x, y]
      */
     private int[] constrainToScreenBounds(int x, int y, WindowManager.LayoutParams params) {
-        // Ekran boyutlarını al
+        updateScreenDimensions(); // Güncel ekran boyutunu garantile
+        
         int screenWidth = szWindow.x;
         int screenHeight = szWindow.y;
-        
-        // Overlay boyutlarını al - önce view'ın gerçek boyutunu kontrol et
-        int overlayWidth;
-        int overlayHeight;
-        
-        if (flutterView != null && flutterView.getWidth() > 0 && flutterView.getHeight() > 0) {
-            // View ölçülmüşse gerçek boyutunu kullan
-            overlayWidth = flutterView.getWidth();
-            overlayHeight = flutterView.getHeight();
-        } else {
-            // View henüz ölçülmemişse params'tan al
-            overlayWidth = params.width == -1 || params.width == WindowManager.LayoutParams.MATCH_PARENT ? screenWidth : params.width;
-            overlayHeight = params.height == -1 || params.height == WindowManager.LayoutParams.MATCH_PARENT ? screenHeight : params.height;
+
+        // Görünür genişlik ve yüksekliği belirle
+        int overlayWidth = (flutterView != null && flutterView.getWidth() > 0) ? flutterView.getWidth() : params.width;
+        int overlayHeight = (flutterView != null && flutterView.getHeight() > 0) ? flutterView.getHeight() : params.height;
+
+        // Eğer width/height MATCH_PARENT (-1) ise ekran boyutunu al
+        if (overlayWidth <= 0 || overlayWidth == WindowManager.LayoutParams.MATCH_PARENT) {
+            overlayWidth = screenWidth;
         }
-        
-        // Kenarlardan minimum mesafe (8dp)
-        int minMargin = dpToPx(8);
-        
-        // X pozisyonunu sınırla (sol ve sağ kenarlar) - kenarlardan minimum mesafe bırak
-        int constrainedX = x;
-        if (constrainedX < minMargin) {
-            constrainedX = minMargin;
-        } else if (constrainedX + overlayWidth > screenWidth - minMargin) {
-            constrainedX = screenWidth - overlayWidth - minMargin;
-            // Eğer overlay çok büyükse ve minimum margin ile sığmıyorsa, en azından 0'dan başlat
-            if (constrainedX < 0) {
-                constrainedX = 0;
-            }
+        if (overlayHeight <= 0 || overlayHeight == WindowManager.LayoutParams.MATCH_PARENT) {
+            overlayHeight = screenHeight;
         }
+
+        int minMargin = dpToPx(2); // Çok az bir pay bırakmak iyidir
         
-        // Y pozisyonunu sınırla (üst ve alt kenarlar) - kenarlardan minimum mesafe bırak
-        int constrainedY = y;
-        if (constrainedY < minMargin) {
-            constrainedY = minMargin;
-        } else if (constrainedY + overlayHeight > screenHeight - minMargin) {
-            constrainedY = screenHeight - overlayHeight - minMargin;
-            // Eğer overlay çok büyükse ve minimum margin ile sığmıyorsa, en azından 0'dan başlat
-            if (constrainedY < 0) {
-                constrainedY = 0;
-            }
-        }
-        
+        // Alt ve Üst Sınırlar (Status bar ve Nav bar hesabı sistem tarafından yapılır, 
+        // ancak manuel sınır eklemek istersen burayı kurcalayabilirsin)
+        int constrainedX = Math.max(minMargin, Math.min(x, screenWidth - overlayWidth - minMargin));
+        int constrainedY = Math.max(minMargin, Math.min(y, screenHeight - overlayHeight - minMargin));
+
         return new int[]{constrainedX, constrainedY};
     }
 
@@ -539,20 +529,22 @@ public class OverlayService extends Service implements View.OnTouchListener {
         @Override
         public void run() {
             mAnimationHandler.post(() -> {
+                // Yumuşak geçiş hesaplama
                 int newX = (2 * (params.x - mDestX)) / 3 + mDestX;
                 int newY = (2 * (params.y - mDestY)) / 3 + mDestY;
                 
-                // Ekran sınırları içinde tut
-                int[] constrainedPos = constrainToScreenBounds(newX, newY, params);
-                params.x = constrainedPos[0];
-                params.y = constrainedPos[1];
+                // Sınırlandırmayı uygula ve ata
+                int[] safePos = constrainToScreenBounds(newX, newY, params);
+                params.x = safePos[0];
+                params.y = safePos[1];
                 
-                if (windowManager != null) {
+                if (windowManager != null && flutterView != null) {
                     windowManager.updateViewLayout(flutterView, params);
                 }
+                
                 if (Math.abs(params.x - mDestX) < 2 && Math.abs(params.y - mDestY) < 2) {
-                    TrayAnimationTimerTask.this.cancel();
-                    mTrayAnimationTimer.cancel();
+                    this.cancel();
+                    if (mTrayAnimationTimer != null) mTrayAnimationTimer.cancel();
                 }
             });
         }
