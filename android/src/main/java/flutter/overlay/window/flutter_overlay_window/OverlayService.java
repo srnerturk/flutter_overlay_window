@@ -140,6 +140,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
         mResources = getApplicationContext().getResources();
         int startX = intent.getIntExtra("startX", OverlayConstants.DEFAULT_XY);
         int startY = intent.getIntExtra("startY", OverlayConstants.DEFAULT_XY);
+        boolean usePixelCoordinates = intent.getBooleanExtra("usePixelCoordinates", false);
 
         boolean isCloseWindow = intent.getBooleanExtra(INTENT_EXTRA_IS_CLOSE_WINDOW, false);
         if (isCloseWindow) {
@@ -204,47 +205,30 @@ public class OverlayService extends Service implements View.OnTouchListener {
             params.alpha = MAXIMUM_OPACITY_ALLOWED_FOR_S_AND_HIGHER;
         }
 
-        // --- NİHAİ KONUMLANDIRMA MANTIĞI ---
+        // --- KONUMLANDIRMA MANTIĞI ---
+        params.gravity = WindowSetup.gravity;
         
-        // 1. Önce Servis kendi hafızasını kontrol eder
-        SharedPreferences sharedPref = getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
-        boolean isPositioned = sharedPref.getBoolean("is_positioned", false);
-        
-        if (isPositioned) {
-            // HAFIZADA KAYIT VAR:
-            // Flutter ne gönderirse göndersin, Gravity'i TOP|LEFT yapıyoruz.
-            // Çünkü kayıtlı koordinatlar (X,Y) ekranın sol üstüne göredir.
-            params.gravity = Gravity.TOP | Gravity.LEFT;
-            
-            // Kayıtlı pixel değerlerini direkt kullan
-            int lastX = sharedPref.getInt("last_x", 0);
-            int lastY = sharedPref.getInt("last_y", 100);
-            
-            // Sınırlandırma uygula ve ata
-            int[] constrained = constrainToScreenBounds(lastX, lastY, params);
+        // Koordinat Atama Kısmı:
+        if (usePixelCoordinates) {
+            // Zaten Pixel (Hafızadan geldi veya lastPosition seçildi) -> Direkt ata
+            // constrainToScreenBounds metodundan geçirmeyi unutma!
+            int[] constrained = constrainToScreenBounds(startX, startY, params);
             params.x = constrained[0];
             params.y = constrained[1];
-            
         } else {
-            // KAYIT YOK (İLK AÇILIŞ):
-            // Flutter'dan gelen Alignment (WindowSetup.gravity) geçerlidir.
-            params.gravity = WindowSetup.gravity;
+            // DP (Flutter'dan geldi) -> Pixel'e çevir
+            int pixelX = (startX == OverlayConstants.DEFAULT_XY) ? 0 : dpToPx(startX);
+            int pixelY = (startY == OverlayConstants.DEFAULT_XY) ? getStatusBarHeight() : dpToPx(startY);
             
-            // Flutter'dan gelen başlangıç değerleri DP cinsindendir, Pixel'e çevrilir
-            int dx = (startX == OverlayConstants.DEFAULT_XY) ? 0 : dpToPx(startX);
-            int dy = (startY == OverlayConstants.DEFAULT_XY) ? getStatusBarHeight() : dpToPx(startY);
-            
-            // İlk pozisyonu da sınırla (özellikle centerRight dışına çıkmasın diye)
-            // Not: Gravity TOP|LEFT değilse constrainToScreenBounds farklı davranabilir, 
-            // ama ilk açılışta genellikle sorun olmaz.
-             if ((params.gravity & Gravity.TOP) == Gravity.TOP && (params.gravity & Gravity.LEFT) == Gravity.LEFT) {
-                 int[] constrained = constrainToScreenBounds(dx, dy, params);
-                 params.x = constrained[0];
-                 params.y = constrained[1];
-             } else {
-                 params.x = dx;
-                 params.y = dy;
-             }
+            // İlk pozisyonu da sınırla
+            if ((params.gravity & Gravity.TOP) == Gravity.TOP && (params.gravity & Gravity.LEFT) == Gravity.LEFT) {
+                int[] constrained = constrainToScreenBounds(pixelX, pixelY, params);
+                params.x = constrained[0];
+                params.y = constrained[1];
+            } else {
+                params.x = pixelX;
+                params.y = pixelY;
+            }
         }
 
         flutterView.setOnTouchListener(this);

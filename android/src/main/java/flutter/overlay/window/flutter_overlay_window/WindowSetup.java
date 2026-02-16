@@ -41,6 +41,15 @@ public abstract class WindowSetup {
 
     static void setGravityFromAlignment(String alignment) {
         if (alignment == null) return;
+        
+        // YENİ KONTROL: lastPosition için Gravity mutlaka TOP|LEFT olmalı
+        if (alignment.equalsIgnoreCase("lastPosition")) {
+            // Eğer "lastPosition" isteniyorsa, koordinat sistemi mutlaka SOL-ÜST olmalı.
+            // Çünkü kayıtlı X,Y değerleri pixel cinsinden ve sol-üst referanslıdır.
+            gravity = Gravity.TOP | Gravity.LEFT;
+            return;
+        }
+        
         if (alignment.equalsIgnoreCase("topLeft")) gravity = Gravity.TOP | Gravity.LEFT;
         else if (alignment.equalsIgnoreCase("topCenter")) gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         else if (alignment.equalsIgnoreCase("topRight")) gravity = Gravity.TOP | Gravity.RIGHT;

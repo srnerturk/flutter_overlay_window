@@ -3,13 +3,16 @@ package flutter.overlay.window.flutter_overlay_window;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
+import android.view.Gravity;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import java.util.Map;
+import io.flutter.FlutterInjector;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.FlutterEngineCache;
 import io.flutter.embedding.engine.FlutterEngineGroup;
@@ -84,8 +87,37 @@ public class FlutterOverlayWindowPlugin implements
             WindowSetup.height = height != null ? height : -1;
             WindowSetup.enableDrag = enableDrag;
             
-            // Sadece varsayılan gravity'i ayarla, ama Service bunu ezebilir!
+            // 1. Önce Gravity'i ayarla
             WindowSetup.setGravityFromAlignment(alignment != null ? alignment : "center");
+            
+            // 2. Eğer "lastPosition" seçildiyse veya hafızada veri varsa koordinatları yükle
+            SharedPreferences sharedPref = context.getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
+            boolean isPositioned = sharedPref.getBoolean("is_positioned", false);
+            boolean requestedLastPos = alignment != null && alignment.equalsIgnoreCase("lastPosition");
+            
+            int finalStartX = startX;
+            int finalStartY = startY;
+            boolean usePixelCoords = false;
+            
+            if (requestedLastPos && isPositioned) {
+                // Kullanıcı "son konum" istedi VE hafızada konum var -> YÜKLE
+                int lastX = sharedPref.getInt("last_x", -1);
+                int lastY = sharedPref.getInt("last_y", -1);
+                
+                if (lastX != -1 && lastY != -1) {
+                    finalStartX = lastX;
+                    finalStartY = lastY;
+                    usePixelCoords = true; // Servise "Bunlar pixel, sakın DP sanma" diyoruz
+                    
+                    // Garanti olsun diye Gravity'i tekrar zorla
+                    WindowSetup.gravity = Gravity.TOP | Gravity.LEFT;
+                }
+            } else if (requestedLastPos && !isPositioned) {
+                // Kullanıcı "son konum" istedi ama hafızada HİÇBİR ŞEY YOK (İlk Kurulum)
+                // O zaman varsayılan bir güvenli başlangıç yap (Sol üstten biraz aşağı)
+                WindowSetup.gravity = Gravity.TOP | Gravity.LEFT;
+                // Varsayılan DP değerleri (startPosition parametresinden gelenler) kullanılacak
+            }
             
             WindowSetup.setFlag(flag != null ? flag : "flagNotFocusable");
             WindowSetup.overlayTitle = overlayTitle;
@@ -96,8 +128,9 @@ public class FlutterOverlayWindowPlugin implements
             final Intent intent = new Intent(context, OverlayService.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            intent.putExtra("startX", startX);
-            intent.putExtra("startY", startY);
+            intent.putExtra("startX", finalStartX);
+            intent.putExtra("startY", finalStartY);
+            intent.putExtra("usePixelCoordinates", usePixelCoords);
             context.startService(intent);
             result.success(null);
 

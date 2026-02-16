@@ -8,7 +8,9 @@ enum OverlayAlignment {
   centerRight,
   bottomLeft,
   bottomCenter,
-  bottomRight
+  bottomRight,
+  /// Restore overlay to the last saved position
+  lastPosition,
 }
 
 /// Type of dragging behavior for the overlay.
