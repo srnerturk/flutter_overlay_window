@@ -1,22 +1,17 @@
 package flutter.overlay.window.flutter_overlay_window;
 
 import android.app.Activity;
-import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
-import android.service.notification.StatusBarNotification;
-import android.util.Log;
 import android.view.Gravity;
-import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
-import androidx.core.app.NotificationManagerCompat;
 
 import java.util.Map;
 
@@ -90,35 +85,37 @@ public class FlutterOverlayWindowPlugin implements
             boolean enableDrag = call.argument("enableDrag");
             String positionGravity = call.argument("positionGravity");
             Map<String, Integer> startPosition = call.argument("startPosition");
-            
-            // Varsayılan değerler
+
+            // Varsayılan değerler (Flutter'dan gelenler)
             int startX = startPosition != null ? startPosition.getOrDefault("x", OverlayConstants.DEFAULT_XY) : OverlayConstants.DEFAULT_XY;
             int startY = startPosition != null ? startPosition.getOrDefault("y", OverlayConstants.DEFAULT_XY) : OverlayConstants.DEFAULT_XY;
 
-            // SharedPreferences Kontrolü
+            // --- KRİTİK DÜZELTME BAŞLANGICI ---
             SharedPreferences sharedPref = context.getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
             boolean isPositioned = sharedPref.getBoolean("is_positioned", false);
-            boolean useRestoredPosition = false;
+            boolean usePixelCoordinates = false;
 
             if (isPositioned) {
+                // Hafızada konum varsa, Flutter'dan gelen her şeyi unut.
+                // Hafızadaki son konumu al.
                 int lastX = sharedPref.getInt("last_x", OverlayConstants.DEFAULT_XY);
                 int lastY = sharedPref.getInt("last_y", OverlayConstants.DEFAULT_XY);
-                
+
                 if (lastX != OverlayConstants.DEFAULT_XY && lastY != OverlayConstants.DEFAULT_XY) {
                     startX = lastX;
                     startY = lastY;
-                    useRestoredPosition = true; // Bu değerlerin zaten Pixel olduğunu işaretle
-                    
-                    // Konum geri yükleniyorsa Alignment'ı EZİYORUZ.
+                    usePixelCoordinates = true; // Servise diyoruz ki: "Bu sayılar zaten Pixel, sakın DP sanıp çarpma!"
+
+                    // BURASI ÇOK ÖNEMLİ:
+                    // Hafızada konum varsa Gravity KESİNLİKLE TOP|LEFT olmalı.
+                    // Yoksa 'CenterRight' gibi değerler koordinatları bozar.
                     WindowSetup.gravity = Gravity.TOP | Gravity.LEFT;
-                } else {
-                    // Kayıt bozuksa Flutter'dan geleni kullan
-                     WindowSetup.setGravityFromAlignment(alignment != null ? alignment : "center");
                 }
             } else {
-                // İlk açılış: Alignment kullan
+                // İlk açılış (Kayıt yok): Flutter'dan gelen Alignment'ı kullanabilirsin.
                 WindowSetup.setGravityFromAlignment(alignment != null ? alignment : "center");
             }
+            // --- KRİTİK DÜZELTME BİTİŞİ ---
 
             WindowSetup.width = width != null ? width : -1;
             WindowSetup.height = height != null ? height : -1;
@@ -134,15 +131,12 @@ public class FlutterOverlayWindowPlugin implements
             intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
             intent.putExtra("startX", startX);
             intent.putExtra("startY", startY);
-            // Servise bu değerlerin Pixel mi DP mi olduğunu söylüyoruz
-            intent.putExtra("isRestored", useRestoredPosition);
+            intent.putExtra("usePixelCoordinates", usePixelCoordinates); // Servise bilgi veriyoruz
+            context.startService(intent);
             result.success(null);
+
         } else if (call.method.equals("isOverlayActive")) {
             result.success(OverlayService.isRunning);
-            return;
-        } else if (call.method.equals("isOverlayActive")) {
-            result.success(OverlayService.isRunning);
-            return;
         } else if (call.method.equals("moveOverlay")) {
             int x = call.argument("x");
             int y = call.argument("y");
@@ -159,7 +153,6 @@ public class FlutterOverlayWindowPlugin implements
         } else {
             result.notImplemented();
         }
-
     }
 
     @Override
@@ -183,25 +176,18 @@ public class FlutterOverlayWindowPlugin implements
     }
 
     @Override
-    public void onDetachedFromActivityForConfigChanges() {
-        this.mActivity = null;
-    }
+    public void onDetachedFromActivityForConfigChanges() { this.mActivity = null; }
 
     @Override
-    public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding binding) {
-        onAttachedToActivity(binding);
-    }
+    public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding binding) { onAttachedToActivity(binding); }
 
     @Override
-    public void onDetachedFromActivity() {
-        this.mActivity = null;
-    }
+    public void onDetachedFromActivity() { this.mActivity = null; }
 
     @Override
     public void onMessage(@Nullable Object message, @NonNull BasicMessageChannel.Reply reply) {
         BasicMessageChannel overlayMessageChannel = new BasicMessageChannel(
-                FlutterEngineCache.getInstance().get(OverlayConstants.CACHED_TAG)
-                        .getDartExecutor(),
+                FlutterEngineCache.getInstance().get(OverlayConstants.CACHED_TAG).getDartExecutor(),
                 OverlayConstants.MESSENGER_TAG, JSONMessageCodec.INSTANCE);
         overlayMessageChannel.send(message, reply);
     }
@@ -221,5 +207,4 @@ public class FlutterOverlayWindowPlugin implements
         }
         return false;
     }
-
 }
