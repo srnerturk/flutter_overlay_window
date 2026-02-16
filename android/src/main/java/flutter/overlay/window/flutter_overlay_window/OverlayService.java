@@ -400,7 +400,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
     }
 
     /**
-     * Overlay pozisyonunu ekran sınırları içinde tutar
+     * Overlay pozisyonunu ekran sınırları içinde tutar ve kenarlardan belirli bir mesafe uzakta tutar
      * @param x Overlay'in x pozisyonu
      * @param y Overlay'in y pozisyonu
      * @param params WindowManager.LayoutParams
@@ -415,20 +415,31 @@ public class OverlayService extends Service implements View.OnTouchListener {
         int overlayWidth = params.width == -1 ? screenWidth : params.width;
         int overlayHeight = params.height == -1 ? screenHeight : params.height;
         
-        // X pozisyonunu sınırla (sol ve sağ kenarlar)
+        // Kenarlardan minimum mesafe (8dp)
+        int minMargin = dpToPx(8);
+        
+        // X pozisyonunu sınırla (sol ve sağ kenarlar) - kenarlardan minimum mesafe bırak
         int constrainedX = x;
-        if (constrainedX < 0) {
-            constrainedX = 0;
-        } else if (constrainedX + overlayWidth > screenWidth) {
-            constrainedX = screenWidth - overlayWidth;
+        if (constrainedX < minMargin) {
+            constrainedX = minMargin;
+        } else if (constrainedX + overlayWidth > screenWidth - minMargin) {
+            constrainedX = screenWidth - overlayWidth - minMargin;
+            // Eğer overlay çok büyükse ve minimum margin ile sığmıyorsa, en azından 0'dan başlat
+            if (constrainedX < 0) {
+                constrainedX = 0;
+            }
         }
         
-        // Y pozisyonunu sınırla (üst ve alt kenarlar)
+        // Y pozisyonunu sınırla (üst ve alt kenarlar) - kenarlardan minimum mesafe bırak
         int constrainedY = y;
-        if (constrainedY < 0) {
-            constrainedY = 0;
-        } else if (constrainedY + overlayHeight > screenHeight) {
-            constrainedY = screenHeight - overlayHeight;
+        if (constrainedY < minMargin) {
+            constrainedY = minMargin;
+        } else if (constrainedY + overlayHeight > screenHeight - minMargin) {
+            constrainedY = screenHeight - overlayHeight - minMargin;
+            // Eğer overlay çok büyükse ve minimum margin ile sığmıyorsa, en azından 0'dan başlat
+            if (constrainedY < 0) {
+                constrainedY = 0;
+            }
         }
         
         return new int[]{constrainedX, constrainedY};
