@@ -228,9 +228,25 @@ public class OverlayService extends Service implements View.OnTouchListener {
             finalX = startX;
             finalY = startY;
         } else {
-            // Flutter'dan geliyor (DP), Pixel'e çevir
-            finalX = (startX == OverlayConstants.DEFAULT_XY) ? dpToPx(0) : dpToPx(startX);
-            finalY = (startY == OverlayConstants.DEFAULT_XY) ? dpToPx(100) : dpToPx(startY);
+            // Kayıtlı konum yok, varsayılan başlangıç
+            params.gravity = Gravity.TOP | Gravity.LEFT;
+            
+            int dx, dy;
+            if (startX == OverlayConstants.DEFAULT_XY && startY == OverlayConstants.DEFAULT_XY) {
+                // Varsayılan: Sağ kenara yapışık, üstten biraz aşağıda
+                // Emülatörde "0" vermek yerine "Status Bar + 50dp" veriyoruz ki görünür olsun.
+                dx = szWindow.x; // En sağ
+                dy = statusBarHeightPx() + dpToPx(50); 
+            } else {
+                dx = (startX == OverlayConstants.DEFAULT_XY) ? 0 : dpToPx(startX);
+                dy = (startY == OverlayConstants.DEFAULT_XY) ? statusBarHeightPx() : dpToPx(startY);
+            }
+            
+            // Hesaplanan bu başlangıç değerini de sınırlandırıcıdan geçir!
+            // Bu sayede yanlışlıkla ekran dışına taşan bir varsayılan değer verilemez.
+            int[] constrainedStartPos = constrainToScreenBounds(dx, dy, params);
+            finalX = constrainedStartPos[0];
+            finalY = constrainedStartPos[1];
         }
 
         // Sınırlandırma uygula
@@ -243,7 +259,14 @@ public class OverlayService extends Service implements View.OnTouchListener {
         return START_STICKY;
     }
 
-
+    @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR1)
+    private int screenHeight() {
+        Display display = windowManager.getDefaultDisplay();
+        DisplayMetrics dm = new DisplayMetrics();
+        // getRealMetrics: Bize ekranın fiziksel panel boyutunu verir (Siyah kenarlıklar dahil)
+        display.getRealMetrics(dm);
+        return dm.heightPixels;
+    }
 
     private int statusBarHeightPx() {
         if (mStatusBarHeight == -1) {
@@ -447,27 +470,39 @@ public class OverlayService extends Service implements View.OnTouchListener {
         return mResources.getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
     }
 
-    // Basitleştirilmiş ve düzeltilmiş Sınırlandırma Metodu
+    /**
+     * Overlay'i güvenli alan (Status Bar ve Nav Bar arası) içinde tutar.
+     */
     private int[] constrainToScreenBounds(int x, int y, WindowManager.LayoutParams params) {
-        updateScreenDimensions(); 
+        updateScreenDimensions(); // Ekran boyutunu tazele
         
         int screenWidth = szWindow.x;
-        int screenHeight = szWindow.y; // getRealMetrics'ten gelen tam yükseklik
+        // screenHeight() metodunu birazdan düzelteceğiz, gerçek tam boyutu alacak.
+        int totalScreenHeight = screenHeight(); 
 
         int overlayWidth = (flutterView != null && flutterView.getWidth() > 0) ? flutterView.getWidth() : params.width;
         int overlayHeight = (flutterView != null && flutterView.getHeight() > 0) ? flutterView.getHeight() : params.height;
 
-        if (overlayWidth <= 0) overlayWidth = screenWidth;
-        if (overlayHeight <= 0) overlayHeight = screenHeight;
+        // Genişlik/Yükseklik hesaplanamadıysa varsayılan davran
+        if (overlayWidth <= 0) overlayWidth = dpToPx(50); // Rastgele küçük bir boyut çakılmasını önler
+        if (overlayHeight <= 0) overlayHeight = dpToPx(50);
 
-        // Overlay ekranın tamamını kaplıyorsa sınırlandırma yapma
-        if (overlayWidth == screenWidth && overlayHeight == screenHeight) {
-            return new int[]{x, y};
-        }
+        // --- KRİTİK AYARLAR ---
+        
+        // 1. ÜST SINIR (Min Y): Status Bar'ın hemen altı
+        // Eğer 0 yaparsan saat ve pil göstergesinin üstüne biner.
+        int minY = statusBarHeightPx(); 
 
-        // Basit matematiksel clamp (kıstırma)
-        int constrainedX = Math.max(0, Math.min(x, screenWidth - overlayWidth));
-        int constrainedY = Math.max(0, Math.min(y, screenHeight - overlayHeight));
+        // 2. ALT SINIR (Max Y): Ekran Boyu - Nav Bar - Overlay Boyu
+        // Eğer navBar'ı çıkarmazsak, emülatörde ikon "Geri Tuşu"nun arkasına düşer ve kaybolur.
+        int maxY = totalScreenHeight - navigationBarHeightPx() - overlayHeight;
+
+        // 3. SAĞ SINIR (Max X)
+        int maxX = screenWidth - overlayWidth;
+
+        // Matematiksel Sınırlama (Clamp)
+        int constrainedX = Math.max(0, Math.min(x, maxX));
+        int constrainedY = Math.max(minY, Math.min(y, maxY));
 
         return new int[]{constrainedX, constrainedY};
     }
