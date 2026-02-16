@@ -238,17 +238,18 @@ public class OverlayService extends Service implements View.OnTouchListener {
             params.x = safePos[0];
             params.y = safePos[1];
         } else {
-            // İlk açılışta Flutter'ın istediği alignment'ı kullan
-            params.gravity = WindowSetup.gravity;
+            // İlk açılışta da varsayılan olarak TOP|LEFT kullan (centerRight vb. kullanma)
+            params.gravity = Gravity.TOP | Gravity.LEFT;
             // Başlangıç pozisyonunu hesapla
             int dx, dy;
             if (startX == OverlayConstants.DEFAULT_XY && startY == OverlayConstants.DEFAULT_XY) {
-                dx = 0;
-                dy = -statusBarHeightPx();
+                // Varsayılan başlangıç pozisyonu: sol üst köşe + status bar yüksekliği + margin
+                dx = dpToPx(2);
+                dy = statusBarHeightPx() + dpToPx(2);
             } else {
                 // Flutter'dan gelen değerler dp cinsinden, pixel'e çevir
-                dx = startX == OverlayConstants.DEFAULT_XY ? 0 : dpToPx(startX);
-                dy = startY == OverlayConstants.DEFAULT_XY ? -statusBarHeightPx() : dpToPx(startY);
+                dx = startX == OverlayConstants.DEFAULT_XY ? dpToPx(2) : dpToPx(startX);
+                dy = startY == OverlayConstants.DEFAULT_XY ? (statusBarHeightPx() + dpToPx(2)) : dpToPx(startY);
             }
             // Başlangıç pozisyonunu ekran sınırları içinde tut
             int[] constrainedStartPos = constrainToScreenBounds(dx, dy, params);
@@ -505,12 +506,15 @@ public class OverlayService extends Service implements View.OnTouchListener {
         }
 
         int minMargin = dpToPx(2); // Çok az bir pay bırakmak iyidir
+        int topMargin = statusBarHeightPx() + minMargin; // Üst sınır için status bar + margin
         
-        // Negatif değerleri ve taşmaları engelle
+        // X ekseni: Sol ve sağ sınır kontrolü
         int constrainedX = Math.max(minMargin, Math.min(x, screenWidth - overlayWidth - minMargin));
         
-        // Y ekseni için 0 ile gerçek ekran yüksekliği arası
-        int constrainedY = Math.max(minMargin, Math.min(y, totalScreenHeight - overlayHeight - minMargin));
+        // Y ekseni: Üst ve alt sınır kontrolü
+        // Üst sınır: status bar yüksekliği + margin
+        // Alt sınır: totalScreenHeight - overlayHeight - margin
+        int constrainedY = Math.max(topMargin, Math.min(y, totalScreenHeight - overlayHeight - minMargin));
 
         return new int[]{constrainedX, constrainedY};
     }

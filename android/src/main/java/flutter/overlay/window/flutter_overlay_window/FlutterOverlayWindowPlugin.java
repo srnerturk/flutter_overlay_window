@@ -111,12 +111,9 @@ public class FlutterOverlayWindowPlugin implements
             WindowSetup.height = height != null ? height : -1;
             WindowSetup.enableDrag = enableDrag;
             
-            // Gravity Sabitleme: Eğer hafızada konum varsa, setGravityFromAlignment çağrılmadan önce gravity'yi TOP|LEFT yap
-            if (isPositioned) {
-                WindowSetup.gravity = Gravity.TOP | Gravity.LEFT;
-            } else {
-                WindowSetup.setGravityFromAlignment(alignment != null ? alignment : "center", context);
-            }
+            // Gravity Sabitleme: Her zaman TOP|LEFT kullan (centerRight vb. kullanma)
+            // Kayıtlı konum varsa veya yoksa, her durumda TOP|LEFT kullan
+            WindowSetup.gravity = Gravity.TOP | Gravity.LEFT;
             
             WindowSetup.setFlag(flag != null ? flag : "flagNotFocusable");
             WindowSetup.overlayTitle = overlayTitle;
