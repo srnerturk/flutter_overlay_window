@@ -123,18 +123,32 @@ public class OverlayService extends Service implements View.OnTouchListener {
         SharedPreferences.Editor editor = sharedPref.edit();
         editor.putInt("last_x", x);
         editor.putInt("last_y", y);
+        editor.putBoolean("is_positioned", true); // Konumlandırma yapıldığını işaretle
         editor.apply();
     }
 
     /**
      * SharedPreferences'tan overlay'in son konumunu yükler
-     * @return Son kaydedilmiş pozisyon (Point)
+     * @return Son kaydedilmiş pozisyon (Point), eğer kayıt yoksa null döner
      */
     private Point getLastPosition() {
         SharedPreferences sharedPref = getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
-        int x = sharedPref.getInt("last_x", 0); // Varsayılan 0
-        int y = sharedPref.getInt("last_y", 100); // Varsayılan 100
+        boolean isPositioned = sharedPref.getBoolean("is_positioned", false);
+        if (!isPositioned) {
+            return null; // İlk açılış, kayıt yok
+        }
+        int x = sharedPref.getInt("last_x", 0);
+        int y = sharedPref.getInt("last_y", 100);
         return new Point(x, y);
+    }
+
+    /**
+     * Kayıtlı konumun olup olmadığını kontrol eder
+     * @return true eğer daha önce konumlandırma yapılmışsa
+     */
+    private boolean hasStoredPosition() {
+        SharedPreferences sharedPref = getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
+        return sharedPref.getBoolean("is_positioned", false);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR1)
@@ -196,17 +210,29 @@ public class OverlayService extends Service implements View.OnTouchListener {
         // Ekran boyutlarını güncelle
         updateScreenDimensions();
         
-        // Başlangıç değerlerini kontrol et
+        // Başlangıç değerlerini kontrol et (pixel cinsinden)
         int dx, dy;
+        boolean useStoredPosition = false;
+        
         if (startX == OverlayConstants.DEFAULT_XY && startY == OverlayConstants.DEFAULT_XY) {
-            // Varsayılan değerler ise son konumu yükle
+            // Varsayılan değerler ise son konumu kontrol et
             Point lastPos = getLastPosition();
-            dx = lastPos.x;
-            dy = lastPos.y;
+            if (lastPos != null) {
+                // Hafızada geçerli bir konum var (pixel cinsinden)
+                dx = lastPos.x;
+                dy = lastPos.y;
+                useStoredPosition = true;
+            } else {
+                // İlk açılış, varsayılan değerleri kullan (pixel cinsinden)
+                dx = 0;
+                dy = -statusBarHeightPx();
+            }
         } else {
-            dx = startX == OverlayConstants.DEFAULT_XY ? 0 : startX;
-            dy = startY == OverlayConstants.DEFAULT_XY ? -statusBarHeightPx() : startY;
+            // Flutter'dan gelen değerler dp cinsinden, pixel'e çevir
+            dx = startX == OverlayConstants.DEFAULT_XY ? 0 : dpToPx(startX);
+            dy = startY == OverlayConstants.DEFAULT_XY ? -statusBarHeightPx() : dpToPx(startY);
         }
+        
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowSetup.width == -1999 ? -1 : WindowSetup.width,
                 WindowSetup.height != -1999 ? WindowSetup.height : screenHeight(),
@@ -222,10 +248,25 @@ public class OverlayService extends Service implements View.OnTouchListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && WindowSetup.flag == clickableFlag) {
             params.alpha = MAXIMUM_OPACITY_ALLOWED_FOR_S_AND_HIGHER;
         }
-        params.gravity = WindowSetup.gravity;
+        
+        // Alignment Bypass: Eğer hafızada geçerli bir konum varsa, gravity'yi TOP|LEFT olarak zorla
+        // Çünkü kayıtlı koordinatlar sol üst köşeye göre hesaplanmıştır
+        if (useStoredPosition) {
+            params.gravity = Gravity.TOP | Gravity.LEFT;
+        } else {
+            // İlk açılış mantığı: Sadece hafızada hiç kayıt yoksa Flutter'dan gelen alignment'ı kullan
+            params.gravity = WindowSetup.gravity;
+        }
+        
         flutterView.setOnTouchListener(this);
         windowManager.addView(flutterView, params);
-        moveOverlay(dx, dy, null);
+        
+        // Başlangıç pozisyonunu ekran sınırları içinde tut (pixel cinsinden)
+        int[] constrainedStartPos = constrainToScreenBounds(dx, dy, params);
+        // moveOverlay dp bekliyor, pixel'den dp'ye çevir
+        int dxDp = (int) pxToDp(constrainedStartPos[0]);
+        int dyDp = (int) pxToDp(constrainedStartPos[1]);
+        moveOverlay(dxDp, dyDp, null);
         return START_STICKY;
     }
 
