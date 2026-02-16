@@ -259,8 +259,19 @@ public class OverlayService extends Service implements View.OnTouchListener {
     private void moveOverlay(int x, int y, MethodChannel.Result result) {
         if (windowManager != null) {
             WindowManager.LayoutParams params = (WindowManager.LayoutParams) flutterView.getLayoutParams();
-            params.x = (x == -1999 || x == -1) ? -1 : dpToPx(x);
-            params.y = dpToPx(y);
+            int pxX = (x == -1999 || x == -1) ? -1 : dpToPx(x);
+            int pxY = dpToPx(y);
+            
+            // Eğer x veya y -1 değilse (yani belirli bir pozisyon belirtilmişse), ekran sınırları içinde tut
+            if (pxX != -1 && pxY != -1) {
+                int[] constrainedPos = constrainToScreenBounds(pxX, pxY, params);
+                params.x = constrainedPos[0];
+                params.y = constrainedPos[1];
+            } else {
+                params.x = pxX;
+                params.y = pxY;
+            }
+            
             windowManager.updateViewLayout(flutterView, params);
             if (result != null)
                 result.success(true);
@@ -286,8 +297,19 @@ public class OverlayService extends Service implements View.OnTouchListener {
         if (instance != null && instance.flutterView != null) {
             if (instance.windowManager != null) {
                 WindowManager.LayoutParams params = (WindowManager.LayoutParams) instance.flutterView.getLayoutParams();
-                params.x = (x == -1999 || x == -1) ? -1 : instance.dpToPx(x);
-                params.y = instance.dpToPx(y);
+                int pxX = (x == -1999 || x == -1) ? -1 : instance.dpToPx(x);
+                int pxY = instance.dpToPx(y);
+                
+                // Eğer x veya y -1 değilse (yani belirli bir pozisyon belirtilmişse), ekran sınırları içinde tut
+                if (pxX != -1 && pxY != -1) {
+                    int[] constrainedPos = instance.constrainToScreenBounds(pxX, pxY, params);
+                    params.x = constrainedPos[0];
+                    params.y = constrainedPos[1];
+                } else {
+                    params.x = pxX;
+                    params.y = pxY;
+                }
+                
                 instance.windowManager.updateViewLayout(instance.flutterView, params);
                 return true;
             } else {
@@ -377,6 +399,41 @@ public class OverlayService extends Service implements View.OnTouchListener {
         return mResources.getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT;
     }
 
+    /**
+     * Overlay pozisyonunu ekran sınırları içinde tutar
+     * @param x Overlay'in x pozisyonu
+     * @param y Overlay'in y pozisyonu
+     * @param params WindowManager.LayoutParams
+     * @return Sınırlandırılmış pozisyon array'i [x, y]
+     */
+    private int[] constrainToScreenBounds(int x, int y, WindowManager.LayoutParams params) {
+        // Ekran boyutlarını al
+        int screenWidth = szWindow.x;
+        int screenHeight = szWindow.y;
+        
+        // Overlay boyutlarını al
+        int overlayWidth = params.width == -1 ? screenWidth : params.width;
+        int overlayHeight = params.height == -1 ? screenHeight : params.height;
+        
+        // X pozisyonunu sınırla (sol ve sağ kenarlar)
+        int constrainedX = x;
+        if (constrainedX < 0) {
+            constrainedX = 0;
+        } else if (constrainedX + overlayWidth > screenWidth) {
+            constrainedX = screenWidth - overlayWidth;
+        }
+        
+        // Y pozisyonunu sınırla (üst ve alt kenarlar)
+        int constrainedY = y;
+        if (constrainedY < 0) {
+            constrainedY = 0;
+        } else if (constrainedY + overlayHeight > screenHeight) {
+            constrainedY = screenHeight - overlayHeight;
+        }
+        
+        return new int[]{constrainedX, constrainedY};
+    }
+
     @Override
     public boolean onTouch(View view, MotionEvent event) {
         if (windowManager != null && WindowSetup.enableDrag) {
@@ -403,8 +460,12 @@ public class OverlayService extends Service implements View.OnTouchListener {
                             || WindowSetup.gravity == (Gravity.BOTTOM | Gravity.RIGHT);
                     int xx = params.x + ((int) dx * (invertX ? -1 : 1));
                     int yy = params.y + ((int) dy * (invertY ? -1 : 1));
-                    params.x = xx;
-                    params.y = yy;
+                    
+                    // Ekran sınırları içinde tut
+                    int[] constrainedPos = constrainToScreenBounds(xx, yy, params);
+                    params.x = constrainedPos[0];
+                    params.y = constrainedPos[1];
+                    
                     if (windowManager != null) {
                         windowManager.updateViewLayout(flutterView, params);
                     }
@@ -457,8 +518,14 @@ public class OverlayService extends Service implements View.OnTouchListener {
         @Override
         public void run() {
             mAnimationHandler.post(() -> {
-                params.x = (2 * (params.x - mDestX)) / 3 + mDestX;
-                params.y = (2 * (params.y - mDestY)) / 3 + mDestY;
+                int newX = (2 * (params.x - mDestX)) / 3 + mDestX;
+                int newY = (2 * (params.y - mDestY)) / 3 + mDestY;
+                
+                // Ekran sınırları içinde tut
+                int[] constrainedPos = constrainToScreenBounds(newX, newY, params);
+                params.x = constrainedPos[0];
+                params.y = constrainedPos[1];
+                
                 if (windowManager != null) {
                     windowManager.updateViewLayout(flutterView, params);
                 }
