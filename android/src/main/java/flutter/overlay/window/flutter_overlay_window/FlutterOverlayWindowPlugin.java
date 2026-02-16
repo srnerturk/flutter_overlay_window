@@ -4,11 +4,13 @@ import android.app.Activity;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
@@ -91,11 +93,31 @@ public class FlutterOverlayWindowPlugin implements
             int startX = startPosition != null ? startPosition.getOrDefault("x", OverlayConstants.DEFAULT_XY) : OverlayConstants.DEFAULT_XY;
             int startY = startPosition != null ? startPosition.getOrDefault("y", OverlayConstants.DEFAULT_XY) : OverlayConstants.DEFAULT_XY;
 
+            // SharedPreferences Kontrolü: OverlayPrefs dosyasını oku
+            SharedPreferences sharedPref = context.getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
+            boolean isPositioned = sharedPref.getBoolean("is_positioned", false);
+            
+            // Konum Önceliği: Eğer is_positioned true ise, Flutter'dan gelen startX ve startY'yi hafızadaki değerlerle ez
+            if (isPositioned) {
+                int lastX = sharedPref.getInt("last_x", OverlayConstants.DEFAULT_XY);
+                int lastY = sharedPref.getInt("last_y", OverlayConstants.DEFAULT_XY);
+                if (lastX != OverlayConstants.DEFAULT_XY && lastY != OverlayConstants.DEFAULT_XY) {
+                    startX = lastX;
+                    startY = lastY;
+                }
+            }
 
             WindowSetup.width = width != null ? width : -1;
             WindowSetup.height = height != null ? height : -1;
             WindowSetup.enableDrag = enableDrag;
-            WindowSetup.setGravityFromAlignment(alignment != null ? alignment : "center");
+            
+            // Gravity Sabitleme: Eğer hafızada konum varsa, setGravityFromAlignment çağrılmadan önce gravity'yi TOP|LEFT yap
+            if (isPositioned) {
+                WindowSetup.gravity = Gravity.TOP | Gravity.LEFT;
+            } else {
+                WindowSetup.setGravityFromAlignment(alignment != null ? alignment : "center", context);
+            }
+            
             WindowSetup.setFlag(flag != null ? flag : "flagNotFocusable");
             WindowSetup.overlayTitle = overlayTitle;
             WindowSetup.overlayContent = overlayContent == null ? "" : overlayContent;
@@ -105,6 +127,7 @@ public class FlutterOverlayWindowPlugin implements
             final Intent intent = new Intent(context, OverlayService.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            // Intent Verisi: Güncel (hafızadan gelen) koordinatları gönder
             intent.putExtra("startX", startX);
             intent.putExtra("startY", startY);
             context.startService(intent);

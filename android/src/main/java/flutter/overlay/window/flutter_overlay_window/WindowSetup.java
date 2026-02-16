@@ -1,6 +1,8 @@
 package flutter.overlay.window.flutter_overlay_window;
 
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.view.Gravity;
 import android.view.WindowManager;
 
@@ -13,7 +15,7 @@ public abstract class WindowSetup {
     static int height = WindowManager.LayoutParams.MATCH_PARENT;
     static int width = WindowManager.LayoutParams.MATCH_PARENT;
     static int flag = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-    static int gravity = Gravity.CENTER;
+    static int gravity = Gravity.TOP | Gravity.LEFT;
     static BasicMessageChannel<Object> messenger = null;
     static String overlayTitle = "Overlay is activated";
     static String overlayContent = "Tap to edit settings or disable";
@@ -36,31 +38,52 @@ public abstract class WindowSetup {
 
     static void setFlag(String name) {
         if (name.equalsIgnoreCase("flagNotFocusable") || name.equalsIgnoreCase("defaultFlag")) {
-            flag = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            flag = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR;
         }
         if (name.equalsIgnoreCase("flagNotTouchable") || name.equalsIgnoreCase("clickThrough")) {
             flag = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR;
         }
         if (name.equalsIgnoreCase("flagNotTouchModal") || name.equalsIgnoreCase("focusPointer")) {
-            flag = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+            flag = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR;
         }
     }
 
     static void showWhenLocked(String name) {
         if (name.equalsIgnoreCase("flagNotFocusable") || name.equalsIgnoreCase("defaultFlag")) {
-            flag = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            flag = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR;
         }
         if (name.equalsIgnoreCase("flagNotTouchable") || name.equalsIgnoreCase("clickThrough")) {
             flag = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR;
         }
         if (name.equalsIgnoreCase("flagNotTouchModal") || name.equalsIgnoreCase("focusPointer")) {
-            flag = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+            flag = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
+                    WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR;
         }
     }
 
-    static void setGravityFromAlignment(String alignment) {
+    static void setGravityFromAlignment(String alignment, Context context) {
+        // Alignment Bypass: Eğer sistem daha önce kullanıcı tarafından konumlandırıldıysa,
+        // gelen alignment değerini görmezden gelip gravity'yi TOP|LEFT yap
+        if (context != null) {
+            SharedPreferences sharedPref = context.getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
+            boolean isPositioned = sharedPref.getBoolean("is_positioned", false);
+            if (isPositioned) {
+                gravity = Gravity.TOP | Gravity.LEFT;
+                return;
+            }
+        }
+        
         if (alignment.equalsIgnoreCase("topLeft")) {
             gravity = Gravity.TOP | Gravity.LEFT;
             return;
