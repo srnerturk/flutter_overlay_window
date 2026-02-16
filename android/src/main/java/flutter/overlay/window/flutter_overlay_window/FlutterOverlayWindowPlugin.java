@@ -90,31 +90,39 @@ public class FlutterOverlayWindowPlugin implements
             boolean enableDrag = call.argument("enableDrag");
             String positionGravity = call.argument("positionGravity");
             Map<String, Integer> startPosition = call.argument("startPosition");
+            
+            // Varsayılan değerler
             int startX = startPosition != null ? startPosition.getOrDefault("x", OverlayConstants.DEFAULT_XY) : OverlayConstants.DEFAULT_XY;
             int startY = startPosition != null ? startPosition.getOrDefault("y", OverlayConstants.DEFAULT_XY) : OverlayConstants.DEFAULT_XY;
 
-            // SharedPreferences Kontrolü: OverlayPrefs dosyasını oku
+            // SharedPreferences Kontrolü
             SharedPreferences sharedPref = context.getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
             boolean isPositioned = sharedPref.getBoolean("is_positioned", false);
-            
-            // Konum Önceliği: Eğer is_positioned true ise, Flutter'dan gelen startX ve startY'yi hafızadaki değerlerle ez
+            boolean useRestoredPosition = false;
+
             if (isPositioned) {
                 int lastX = sharedPref.getInt("last_x", OverlayConstants.DEFAULT_XY);
                 int lastY = sharedPref.getInt("last_y", OverlayConstants.DEFAULT_XY);
+                
                 if (lastX != OverlayConstants.DEFAULT_XY && lastY != OverlayConstants.DEFAULT_XY) {
                     startX = lastX;
                     startY = lastY;
+                    useRestoredPosition = true; // Bu değerlerin zaten Pixel olduğunu işaretle
+                    
+                    // Konum geri yükleniyorsa Alignment'ı EZİYORUZ.
+                    WindowSetup.gravity = Gravity.TOP | Gravity.LEFT;
+                } else {
+                    // Kayıt bozuksa Flutter'dan geleni kullan
+                     WindowSetup.setGravityFromAlignment(alignment != null ? alignment : "center");
                 }
+            } else {
+                // İlk açılış: Alignment kullan
+                WindowSetup.setGravityFromAlignment(alignment != null ? alignment : "center");
             }
 
             WindowSetup.width = width != null ? width : -1;
             WindowSetup.height = height != null ? height : -1;
             WindowSetup.enableDrag = enableDrag;
-            
-            // Gravity Sabitleme: Her zaman TOP|LEFT kullan (centerRight vb. kullanma)
-            // Kayıtlı konum varsa veya yoksa, her durumda TOP|LEFT kullan
-            WindowSetup.gravity = Gravity.TOP | Gravity.LEFT;
-            
             WindowSetup.setFlag(flag != null ? flag : "flagNotFocusable");
             WindowSetup.overlayTitle = overlayTitle;
             WindowSetup.overlayContent = overlayContent == null ? "" : overlayContent;
@@ -124,10 +132,10 @@ public class FlutterOverlayWindowPlugin implements
             final Intent intent = new Intent(context, OverlayService.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            // Intent Verisi: Güncel (hafızadan gelen) koordinatları gönder
             intent.putExtra("startX", startX);
             intent.putExtra("startY", startY);
-            context.startService(intent);
+            // Servise bu değerlerin Pixel mi DP mi olduğunu söylüyoruz
+            intent.putExtra("isRestored", useRestoredPosition);
             result.success(null);
         } else if (call.method.equals("isOverlayActive")) {
             result.success(OverlayService.isRunning);
