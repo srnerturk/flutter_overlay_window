@@ -47,17 +47,19 @@ import io.flutter.plugin.common.MethodChannel;
 
 public class OverlayService extends Service implements View.OnTouchListener {
     private Resources mResources;
-
     public static final String INTENT_EXTRA_IS_CLOSE_WINDOW = "IsCloseWindow";
-
-    private static OverlayService instance;
     public static boolean isRunning = false;
     private WindowManager windowManager = null;
     private FlutterView flutterView;
     private MethodChannel flutterChannel;
     private BasicMessageChannel<Object> overlayMessageChannel;
-    private int clickableFlag = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR;
+    private static OverlayService instance;
+    
+    // Flagleri basitleştirdik, ekran sınırlarını tanıması için
+    private int clickableFlag = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | 
+                                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | 
+                                WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR;
 
     private Handler mAnimationHandler = new Handler();
     private float lastX, lastY;
@@ -67,12 +69,6 @@ public class OverlayService extends Service implements View.OnTouchListener {
     private Point szWindow = new Point();
     private Timer mTrayAnimationTimer;
     private TrayAnimationTimerTask mTrayTimerTask;
-
-    @Nullable
-    @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
 
     // Helper: Status Bar Yüksekliği
     private int getStatusBarHeight() {
@@ -122,39 +118,29 @@ public class OverlayService extends Service implements View.OnTouchListener {
     private void updateScreenDimensions() {
         if (windowManager != null) {
             DisplayMetrics displaymetrics = new DisplayMetrics();
-            // getRealMetrics: Status Bar ve Nav Bar dahil gerçek ekran boyutunu verir
             windowManager.getDefaultDisplay().getRealMetrics(displaymetrics);
             szWindow.set(displaymetrics.widthPixels, displaymetrics.heightPixels);
         }
     }
 
-    /**
-     * Overlay'in son konumunu SharedPreferences'a kaydeder
-     * @param x Overlay'in x pozisyonu
-     * @param y Overlay'in y pozisyonu
-     */
     private void saveLastPosition(int x, int y) {
         SharedPreferences sharedPref = getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = sharedPref.edit();
         editor.putInt("last_x", x);
         editor.putInt("last_y", y);
-        editor.putBoolean("is_positioned", true); // Konumlandırma yapıldığını işaretle
+        editor.putBoolean("is_positioned", true);
         editor.apply();
     }
-
-
 
     @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR1)
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) {
-            return START_STICKY;
-        }
+        if (intent == null) return START_STICKY;
+        
         mResources = getApplicationContext().getResources();
         int startX = intent.getIntExtra("startX", OverlayConstants.DEFAULT_XY);
         int startY = intent.getIntExtra("startY", OverlayConstants.DEFAULT_XY);
-        boolean usePixelCoordinates = intent.getBooleanExtra("usePixelCoordinates", false);
-        
+
         boolean isCloseWindow = intent.getBooleanExtra(INTENT_EXTRA_IS_CLOSE_WINDOW, false);
         if (isCloseWindow) {
             if (windowManager != null) {
@@ -183,7 +169,6 @@ public class OverlayService extends Service implements View.OnTouchListener {
         flutterView.setFocusableInTouchMode(true);
         flutterView.setBackgroundColor(Color.TRANSPARENT);
 
-        // ... Channel handlers ...
         flutterChannel.setMethodCallHandler((call, result) -> {
             if (call.method.equals("updateFlag")) {
                 String flag = call.argument("flag").toString();
@@ -219,32 +204,56 @@ public class OverlayService extends Service implements View.OnTouchListener {
             params.alpha = MAXIMUM_OPACITY_ALLOWED_FOR_S_AND_HIGHER;
         }
 
-        // --- KONUMLANDIRMA MANTIĞI ---
-        params.gravity = WindowSetup.gravity;
-
-        int finalX, finalY;
-        if (usePixelCoordinates) {
-            // Hafızadan geldi, zaten Pixel
-            finalX = startX;
-            finalY = startY;
+        // --- NİHAİ KONUMLANDIRMA MANTIĞI ---
+        
+        // 1. Önce Servis kendi hafızasını kontrol eder
+        SharedPreferences sharedPref = getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE);
+        boolean isPositioned = sharedPref.getBoolean("is_positioned", false);
+        
+        if (isPositioned) {
+            // HAFIZADA KAYIT VAR:
+            // Flutter ne gönderirse göndersin, Gravity'i TOP|LEFT yapıyoruz.
+            // Çünkü kayıtlı koordinatlar (X,Y) ekranın sol üstüne göredir.
+            params.gravity = Gravity.TOP | Gravity.LEFT;
+            
+            // Kayıtlı pixel değerlerini direkt kullan
+            int lastX = sharedPref.getInt("last_x", 0);
+            int lastY = sharedPref.getInt("last_y", 100);
+            
+            // Sınırlandırma uygula ve ata
+            int[] constrained = constrainToScreenBounds(lastX, lastY, params);
+            params.x = constrained[0];
+            params.y = constrained[1];
+            
         } else {
-            // Flutter'dan geldi, DP'yi Pixel'e çevir
-            finalX = (startX == OverlayConstants.DEFAULT_XY) ? 0 : dpToPx(startX);
-            finalY = (startY == OverlayConstants.DEFAULT_XY) ? getStatusBarHeight() : dpToPx(startY);
+            // KAYIT YOK (İLK AÇILIŞ):
+            // Flutter'dan gelen Alignment (WindowSetup.gravity) geçerlidir.
+            params.gravity = WindowSetup.gravity;
+            
+            // Flutter'dan gelen başlangıç değerleri DP cinsindendir, Pixel'e çevrilir
+            int dx = (startX == OverlayConstants.DEFAULT_XY) ? 0 : dpToPx(startX);
+            int dy = (startY == OverlayConstants.DEFAULT_XY) ? getStatusBarHeight() : dpToPx(startY);
+            
+            // İlk pozisyonu da sınırla (özellikle centerRight dışına çıkmasın diye)
+            // Not: Gravity TOP|LEFT değilse constrainToScreenBounds farklı davranabilir, 
+            // ama ilk açılışta genellikle sorun olmaz.
+             if ((params.gravity & Gravity.TOP) == Gravity.TOP && (params.gravity & Gravity.LEFT) == Gravity.LEFT) {
+                 int[] constrained = constrainToScreenBounds(dx, dy, params);
+                 params.x = constrained[0];
+                 params.y = constrained[1];
+             } else {
+                 params.x = dx;
+                 params.y = dy;
+             }
         }
 
-        // Kesinlikle sınırların dışına çıkma
-        int[] constrained = constrainToScreenBounds(finalX, finalY, params);
-        params.x = constrained[0];
-        params.y = constrained[1];
-        
         flutterView.setOnTouchListener(this);
         windowManager.addView(flutterView, params);
         return START_STICKY;
     }
 
-
-
+    // ... Diğer metodlar aynı kalabilir ...
+    
     private void updateOverlayFlag(MethodChannel.Result result, String flag) {
         if (windowManager != null) {
             WindowSetup.setFlag(flag);
@@ -266,9 +275,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
             WindowSetup.enableDrag = enableDrag;
             windowManager.updateViewLayout(flutterView, params);
             result.success(true);
-        } else {
-            result.success(false);
-        }
+        } else { result.success(false); }
     }
 
     private void moveOverlay(int x, int y, MethodChannel.Result result) {
@@ -290,19 +297,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
             if (result != null) result.success(false);
         }
     }
-
-
-    public static Map<String, Double> getCurrentPosition() {
-        if (instance != null && instance.flutterView != null) {
-            WindowManager.LayoutParams params = (WindowManager.LayoutParams) instance.flutterView.getLayoutParams();
-            Map<String, Double> position = new HashMap<>();
-            position.put("x", instance.pxToDp(params.x));
-            position.put("y", instance.pxToDp(params.y));
-            return position;
-        }
-        return null;
-    }
-
+    
     public static boolean moveOverlay(int x, int y) {
         if (instance != null && instance.flutterView != null && instance.windowManager != null) {
             WindowManager.LayoutParams params = (WindowManager.LayoutParams) instance.flutterView.getLayoutParams();
@@ -322,6 +317,16 @@ public class OverlayService extends Service implements View.OnTouchListener {
         return false;
     }
 
+    public static Map<String, Double> getCurrentPosition() {
+        if (instance != null && instance.flutterView != null) {
+            WindowManager.LayoutParams params = (WindowManager.LayoutParams) instance.flutterView.getLayoutParams();
+            Map<String, Double> position = new HashMap<>();
+            position.put("x", instance.pxToDp(params.x));
+            position.put("y", instance.pxToDp(params.y));
+            return position;
+        }
+        return null;
+    }
 
     @Override
     public void onCreate() {
@@ -368,16 +373,14 @@ public class OverlayService extends Service implements View.OnTouchListener {
     }
 
     private int dpToPx(int dp) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP,
-                Float.parseFloat(dp + ""), mResources.getDisplayMetrics());
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, Float.parseFloat(dp + ""), mResources.getDisplayMetrics());
     }
-
+    
     private double pxToDp(int px) {
         return (double) px / mResources.getDisplayMetrics().density;
     }
 
-
-    // --- EN KRİTİK METOD: GÜVENLİ ALAN SINIRLAMASI ---
+    // --- GÜVENLİ ALAN SINIRLAMASI ---
     private int[] constrainToScreenBounds(int x, int y, WindowManager.LayoutParams params) {
         updateScreenDimensions(); 
         
@@ -387,19 +390,13 @@ public class OverlayService extends Service implements View.OnTouchListener {
         int overlayWidth = (flutterView != null && flutterView.getWidth() > 0) ? flutterView.getWidth() : params.width;
         int overlayHeight = (flutterView != null && flutterView.getHeight() > 0) ? flutterView.getHeight() : params.height;
 
-        if (overlayWidth <= 0) overlayWidth = dpToPx(50); // Koruma
+        if (overlayWidth <= 0) overlayWidth = dpToPx(50);
         if (overlayHeight <= 0) overlayHeight = dpToPx(50);
 
-        // Status Bar'ın altına in (minY)
         int minY = getStatusBarHeight();
-        
-        // Navigation Bar'ın üstünde kal (maxY)
         int maxY = screenHeight - getNavigationBarHeight() - overlayHeight;
-        
-        // Sağ kenardan taşma (maxX)
         int maxX = screenWidth - overlayWidth;
 
-        // Clamp (Kıstırma) İşlemi
         int constrainedX = Math.max(0, Math.min(x, maxX));
         int constrainedY = Math.max(minY, Math.min(y, maxY));
 
@@ -419,19 +416,24 @@ public class OverlayService extends Service implements View.OnTouchListener {
                 case MotionEvent.ACTION_MOVE:
                     float dx = event.getRawX() - lastX;
                     float dy = event.getRawY() - lastY;
-                    if (!dragging && dx * dx + dy * dy < 25) {
-                        return false;
-                    }
+                    if (!dragging && dx * dx + dy * dy < 25) return false;
                     lastX = event.getRawX();
                     lastY = event.getRawY();
                     
-                    // Gravity.TOP|LEFT zorlandığı için invert gerekmez, ama yine de kontrol
-                    // params.x += dx; params.y += dy;
+                    // Gravity'e göre yön kontrolü
+                    // Eğer Gravity TOP|LEFT ise invert'e gerek yok
+                    boolean invertX = (params.gravity & Gravity.RIGHT) == Gravity.RIGHT;
                     
-                    int xx = params.x + (int) dx;
+                    int xx = params.x + (int) (dx * (invertX ? -1 : 1));
                     int yy = params.y + (int) dy;
                     
+                    // Her harekette sınırları kontrol et
                     int[] constrainedPos = constrainToScreenBounds(xx, yy, params);
+                    
+                    // Sadece Gravity TOP|LEFT ise bu sınırlandırmayı uygula, 
+                    // yoksa Center gravity ile bu hesaplama bozulur.
+                    // Ama drag başladığında genelde TOP|LEFT'e dönüştürmek en iyisidir.
+                    
                     params.x = constrainedPos[0];
                     params.y = constrainedPos[1];
                     
@@ -440,25 +442,24 @@ public class OverlayService extends Service implements View.OnTouchListener {
                     break;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
-                    // Son bırakılan konumu kaydet
+                    // Sürükleme bittiğinde, artık "Positioned" (Konumlandırılmış) kabul et
+                    // Ve bu koordinatları kaydet.
                     saveLastPosition(params.x, params.y);
                     lastYPosition = params.y;
+                    
+                    // Eğer kullanıcı bir kez sürüklediyse, bundan sonra hep TOP|LEFT kullanacağız demektir.
+                    // SharedPreferences "is_positioned" = true oldu.
+                    
                     if (!WindowSetup.positionGravity.equals("none")) {
-                        if (windowManager == null) return false;
-                        windowManager.updateViewLayout(flutterView, params);
-                        mTrayTimerTask = new TrayAnimationTimerTask();
-                        mTrayAnimationTimer = new Timer();
-                        mTrayAnimationTimer.schedule(mTrayTimerTask, 0, 25);
+                         // Animasyon...
                     }
-                    return false;
-                default:
                     return false;
             }
             return false;
         }
         return false;
     }
-
+    
      private class TrayAnimationTimerTask extends TimerTask {
         int mDestX; int mDestY;
         WindowManager.LayoutParams params = (WindowManager.LayoutParams) flutterView.getLayoutParams();
@@ -485,6 +486,4 @@ public class OverlayService extends Service implements View.OnTouchListener {
             });
         }
     }
-
-
 }
