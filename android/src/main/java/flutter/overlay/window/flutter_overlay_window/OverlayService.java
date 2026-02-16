@@ -411,9 +411,19 @@ public class OverlayService extends Service implements View.OnTouchListener {
         int screenWidth = szWindow.x;
         int screenHeight = szWindow.y;
         
-        // Overlay boyutlarını al
-        int overlayWidth = params.width == -1 ? screenWidth : params.width;
-        int overlayHeight = params.height == -1 ? screenHeight : params.height;
+        // Overlay boyutlarını al - önce view'ın gerçek boyutunu kontrol et
+        int overlayWidth;
+        int overlayHeight;
+        
+        if (flutterView != null && flutterView.getWidth() > 0 && flutterView.getHeight() > 0) {
+            // View ölçülmüşse gerçek boyutunu kullan
+            overlayWidth = flutterView.getWidth();
+            overlayHeight = flutterView.getHeight();
+        } else {
+            // View henüz ölçülmemişse params'tan al
+            overlayWidth = params.width == -1 || params.width == WindowManager.LayoutParams.MATCH_PARENT ? screenWidth : params.width;
+            overlayHeight = params.height == -1 || params.height == WindowManager.LayoutParams.MATCH_PARENT ? screenHeight : params.height;
+        }
         
         // Kenarlardan minimum mesafe (8dp)
         int minMargin = dpToPx(8);
