@@ -210,28 +210,9 @@ public class OverlayService extends Service implements View.OnTouchListener {
         // Ekran boyutlarını güncelle
         updateScreenDimensions();
         
-        // Başlangıç değerlerini kontrol et (pixel cinsinden)
-        int dx, dy;
-        boolean useStoredPosition = false;
-        
-        if (startX == OverlayConstants.DEFAULT_XY && startY == OverlayConstants.DEFAULT_XY) {
-            // Varsayılan değerler ise son konumu kontrol et
-            Point lastPos = getLastPosition();
-            if (lastPos != null) {
-                // Hafızada geçerli bir konum var (pixel cinsinden)
-                dx = lastPos.x;
-                dy = lastPos.y;
-                useStoredPosition = true;
-            } else {
-                // İlk açılış, varsayılan değerleri kullan (pixel cinsinden)
-                dx = 0;
-                dy = -statusBarHeightPx();
-            }
-        } else {
-            // Flutter'dan gelen değerler dp cinsinden, pixel'e çevir
-            dx = startX == OverlayConstants.DEFAULT_XY ? 0 : dpToPx(startX);
-            dy = startY == OverlayConstants.DEFAULT_XY ? -statusBarHeightPx() : dpToPx(startY);
-        }
+        // Kayıtlı konum kontrolü
+        Point lastPos = getLastPosition();
+        boolean hasSavedPos = getSharedPreferences("OverlayPrefs", Context.MODE_PRIVATE).getBoolean("is_positioned", false);
         
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowSetup.width == -1999 ? -1 : WindowSetup.width,
@@ -249,24 +230,34 @@ public class OverlayService extends Service implements View.OnTouchListener {
             params.alpha = MAXIMUM_OPACITY_ALLOWED_FOR_S_AND_HIGHER;
         }
         
-        // Alignment Bypass: Eğer hafızada geçerli bir konum varsa, gravity'yi TOP|LEFT olarak zorla
-        // Çünkü kayıtlı koordinatlar sol üst köşeye göre hesaplanmıştır
-        if (useStoredPosition) {
+        if (hasSavedPos && lastPos != null) {
+            // Hafızada konum varsa Flutter'dan gelen alignment'ı (centerRight vb.) ez!
             params.gravity = Gravity.TOP | Gravity.LEFT;
+            // Kayıtlı konumu ekran sınırları içinde tut ve direkt params'a ata
+            int[] safePos = constrainToScreenBounds(lastPos.x, lastPos.y, params);
+            params.x = safePos[0];
+            params.y = safePos[1];
         } else {
-            // İlk açılış mantığı: Sadece hafızada hiç kayıt yoksa Flutter'dan gelen alignment'ı kullan
+            // İlk açılışta Flutter'ın istediği alignment'ı kullan
             params.gravity = WindowSetup.gravity;
+            // Başlangıç pozisyonunu hesapla
+            int dx, dy;
+            if (startX == OverlayConstants.DEFAULT_XY && startY == OverlayConstants.DEFAULT_XY) {
+                dx = 0;
+                dy = -statusBarHeightPx();
+            } else {
+                // Flutter'dan gelen değerler dp cinsinden, pixel'e çevir
+                dx = startX == OverlayConstants.DEFAULT_XY ? 0 : dpToPx(startX);
+                dy = startY == OverlayConstants.DEFAULT_XY ? -statusBarHeightPx() : dpToPx(startY);
+            }
+            // Başlangıç pozisyonunu ekran sınırları içinde tut
+            int[] constrainedStartPos = constrainToScreenBounds(dx, dy, params);
+            params.x = constrainedStartPos[0];
+            params.y = constrainedStartPos[1];
         }
         
         flutterView.setOnTouchListener(this);
         windowManager.addView(flutterView, params);
-        
-        // Başlangıç pozisyonunu ekran sınırları içinde tut (pixel cinsinden)
-        int[] constrainedStartPos = constrainToScreenBounds(dx, dy, params);
-        // moveOverlay dp bekliyor, pixel'den dp'ye çevir
-        int dxDp = (int) pxToDp(constrainedStartPos[0]);
-        int dyDp = (int) pxToDp(constrainedStartPos[1]);
-        moveOverlay(dxDp, dyDp, null);
         return START_STICKY;
     }
 
@@ -497,7 +488,9 @@ public class OverlayService extends Service implements View.OnTouchListener {
         updateScreenDimensions(); // Güncel ekran boyutunu garantile
         
         int screenWidth = szWindow.x;
-        int screenHeight = szWindow.y;
+        // screenHeight() metodunu kullanarak gerçek piksel yüksekliğini alıyoruz
+        // (Status Bar + Navigation Bar dahil)
+        int totalScreenHeight = screenHeight();
 
         // Görünür genişlik ve yüksekliği belirle
         int overlayWidth = (flutterView != null && flutterView.getWidth() > 0) ? flutterView.getWidth() : params.width;
@@ -508,15 +501,16 @@ public class OverlayService extends Service implements View.OnTouchListener {
             overlayWidth = screenWidth;
         }
         if (overlayHeight <= 0 || overlayHeight == WindowManager.LayoutParams.MATCH_PARENT) {
-            overlayHeight = screenHeight;
+            overlayHeight = totalScreenHeight;
         }
 
         int minMargin = dpToPx(2); // Çok az bir pay bırakmak iyidir
         
-        // Alt ve Üst Sınırlar (Status bar ve Nav bar hesabı sistem tarafından yapılır, 
-        // ancak manuel sınır eklemek istersen burayı kurcalayabilirsin)
+        // Negatif değerleri ve taşmaları engelle
         int constrainedX = Math.max(minMargin, Math.min(x, screenWidth - overlayWidth - minMargin));
-        int constrainedY = Math.max(minMargin, Math.min(y, screenHeight - overlayHeight - minMargin));
+        
+        // Y ekseni için 0 ile gerçek ekran yüksekliği arası
+        int constrainedY = Math.max(minMargin, Math.min(y, totalScreenHeight - overlayHeight - minMargin));
 
         return new int[]{constrainedX, constrainedY};
     }
