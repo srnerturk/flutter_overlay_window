@@ -18,7 +18,7 @@ class _HomePageState extends State<HomePage> {
   final _receivePort = ReceivePort();
   SendPort? homePort;
   String? latestMessageFromOverlay;
-  //deneme development
+  //bubble active
 
   @override
   void initState() {

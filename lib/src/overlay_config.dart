@@ -9,7 +9,7 @@ enum OverlayAlignment {
   bottomLeft,
   bottomCenter,
   bottomRight,
-    /// Restore overlay to the last saved position
+  /// Restore overlay to the last saved position
   lastPosition,
 }
 
