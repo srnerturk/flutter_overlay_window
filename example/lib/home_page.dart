@@ -18,7 +18,6 @@ class _HomePageState extends State<HomePage> {
   final _receivePort = ReceivePort();
   SendPort? homePort;
   String? latestMessageFromOverlay;
-  //denem emre pr
 
   @override
   void initState() {
